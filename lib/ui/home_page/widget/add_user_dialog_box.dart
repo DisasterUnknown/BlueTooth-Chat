@@ -5,15 +5,16 @@ import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-Future<void> showAddUserDialog(BuildContext context) async {
+/// Shows the "Add User" dialog and returns `true` if a user was added.
+Future<bool?> showAddUserDialog(BuildContext context) async {
   final myId = await AppIdentifier.getId();
 
   final otherIdController = TextEditingController();
   final nameController = TextEditingController();
 
-  if (!context.mounted) return;
+  if (!context.mounted) return false;
 
-  showGeneralDialog(
+  return showGeneralDialog<bool>(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'Blur',
@@ -99,7 +100,7 @@ Future<void> showAddUserDialog(BuildContext context) async {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(context, false),
                 child: const Text(
                   'Cancel',
                   style: TextStyle(color: Colors.grey),
@@ -130,7 +131,7 @@ Future<void> showAddUserDialog(BuildContext context) async {
                   });
 
                   if (!context.mounted) return;
-                  Navigator.pop(context);
+                  Navigator.pop(context, true);
                 },
                 child: const Text('Add User'),
               ),

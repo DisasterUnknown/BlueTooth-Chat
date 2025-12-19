@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
+import 'package:bluetooth_chat_app/data/data_base/db_crypto.dart';
 import 'package:bluetooth_chat_app/services/log_service.dart';
 import 'package:bluetooth_chat_app/services/uuid_service.dart';
 import 'package:flutter/foundation.dart';
@@ -434,6 +435,8 @@ class MeshService {
     final db = DBHelper();
     final msgId = generateMsgId(myUserCode);
 
+    // 1) Store a human-readable copy in the chat table for MY view.
+    //    We keep this UNENCRYPTED so I can always read my own sent messages.
     await db.insertChatMsg(
       targetUserCode,
       {
@@ -443,13 +446,18 @@ class MeshService {
         'receiveDate': null,
         'isReceived': 0,
       },
-      encrypt: true,
-      receiverUserCode: targetUserCode,
+      encrypt: false,
     );
+
+    // 2) Create a RELAY record for the mesh.
+    //    This is what hops across devices. It SHOULD be encrypted for the
+    //    receiver, because any intermediate device is just a router.
+    final encryptedForReceiver =
+        CryptoHelper.encryptMsg(plainText, targetUserCode);
 
     await db.insertNonUserMsg({
       'msgId': msgId,
-      'msg': plainText,
+      'msg': encryptedForReceiver,
       'sendDate': DateTime.now().toIso8601String(),
       'receiveDate': null,
       'senderUserCode': myUserCode,

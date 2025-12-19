@@ -82,7 +82,13 @@ class _HomePageState extends State<HomePage> {
 
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.greenAccent.shade400,
-        onPressed: () => showAddUserDialog(context),
+        onPressed: () async {
+          final added = await showAddUserDialog(context);
+          if (!mounted) return;
+          if (added == true) {
+            setState(() {}); // reload chat list from DB
+          }
+        },
         child: const Icon(
           Icons.add_link_outlined,
           size: 30,

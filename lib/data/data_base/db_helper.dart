@@ -172,16 +172,22 @@ class DBHelper {
       orderBy: 'sendDate ASC',
     );
 
-    // Attempt decryption for incoming messages
+    // Attempt decryption only for incoming messages (isReceived == 1)
     if (myUserCode != null) {
       return rawMsgs.map((m) {
-        final msgValue = m['msg'];
-        String? decrypted;
-        if (msgValue is String) {
-          decrypted = CryptoHelper.decryptMsg(msgValue, myUserCode);
-          if (decrypted != null) {
-            m['msg'] = decrypted;
+        try {
+          final isReceived = m['isReceived'] as int? ?? 0;
+          if (isReceived == 1) {
+            final msgValue = m['msg'];
+            if (msgValue is String) {
+              final decrypted = CryptoHelper.decryptMsg(msgValue, myUserCode);
+              if (decrypted != null) {
+                m['msg'] = decrypted;
+              }
+            }
           }
+        } catch (_) {
+          // best-effort; leave message as-is on any failure
         }
         return m;
       }).toList();
