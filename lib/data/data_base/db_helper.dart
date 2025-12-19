@@ -106,6 +106,20 @@ class DBHelper {
     );
   }
 
+  Future<int> countNonUserMsgs() async {
+    final database = await db;
+    final result =
+        await database.rawQuery('SELECT COUNT(*) as c FROM nonUserMsgs');
+    return result.first['c'] as int? ?? 0;
+  }
+
+  Future<int> countPendingNonUserMsgs() async {
+    final database = await db;
+    final result = await database
+        .rawQuery('SELECT COUNT(*) as c FROM nonUserMsgs WHERE isReceived = 0');
+    return result.first['c'] as int? ?? 0;
+  }
+
   // ===================== CHAT MSGS =====================
   Future<void> createChatTable(String userCode) async {
     final database = await db;
@@ -214,6 +228,13 @@ class DBHelper {
       whereArgs: [msgId],
     );
     return result.isNotEmpty;
+  }
+
+  Future<int> countHashMsgs() async {
+    final database = await db;
+    final result =
+        await database.rawQuery('SELECT COUNT(*) as c FROM hashMsgs');
+    return result.first['c'] as int? ?? 0;
   }
 
   // ===================== CLEANUP =====================

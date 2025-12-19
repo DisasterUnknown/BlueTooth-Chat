@@ -1,8 +1,7 @@
 import 'package:bluetooth_chat_app/ui/home_page/widget/add_user_dialog_box.dart';
 import 'package:bluetooth_chat_app/ui/home_page/widget/app_search_delegate.dart';
-import 'package:bluetooth_chat_app/ui/home_page/widget/call_builder.dart';
 import 'package:bluetooth_chat_app/ui/home_page/widget/chat_builder.dart';
-import 'package:bluetooth_chat_app/ui/home_page/widget/status_builder.dart';
+import 'package:bluetooth_chat_app/ui/info_page/info_page.dart';
 import 'package:flutter/material.dart';
 
 class HomePage extends StatefulWidget {
@@ -12,31 +11,36 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-
+class _HomePageState extends State<HomePage> {
   // 🔹 Sample searchable data (replace with real data later)
   final List<String> searchData = [
     'User 0',
     'User 1',
     'User 2',
-    'Status 0',
-    'Status 1',
-    'Call User 0',
-    'Call User 1',
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
+  void _openInfoPage() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const InfoPage(),
+        transitionsBuilder:
+            (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0); // slide up from bottom
+          const end = Offset.zero;
+          const curve = Curves.easeOut;
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+          final tween = Tween(begin: begin, end: end)
+              .chain(CurveTween(curve: curve));
+
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -54,6 +58,13 @@ class _HomePageState extends State<HomePage>
         iconTheme: const IconThemeData(color: Colors.white),
 
         actions: [
+          // ℹ️ INFO / METRICS PAGE
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Mesh & DB Info',
+            onPressed: _openInfoPage,
+          ),
+
           // 🔍 SEARCH
           IconButton(
             icon: const Icon(Icons.search),
@@ -64,35 +75,10 @@ class _HomePageState extends State<HomePage>
               );
             },
           ),
-
-          // ⋮ MENU
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            color: const Color(0xFF2A2A2A),
-            onSelected: (value) {
-              if (value == 'settings') {
-                debugPrint('Settings');
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'settings',
-                child: Text('Settings',
-                    style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
         ],
       ),
 
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          buildChatList(),
-          buildStatusList(),
-          buildCallList(),
-        ],
-      ),
+      body: buildChatList(),
 
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.greenAccent.shade400,

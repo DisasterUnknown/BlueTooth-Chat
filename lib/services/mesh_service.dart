@@ -4,7 +4,83 @@ import 'dart:convert';
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
 import 'package:bluetooth_chat_app/services/log_service.dart';
 import 'package:bluetooth_chat_app/services/uuid_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
+/// Runtime metrics for the mesh network. This is kept in-memory per session
+/// and exposed via [MeshService.stats] so the UI can show real values.
+class MeshStats {
+  final int totalMessagesSent;
+  final int totalMessagesReceived;
+  final int totalMessagesDeliveredToMe;
+  final int successfulDeliveries;
+  final double avgDeliveryMillis;
+  final int currentConnectedDevices;
+  final DateTime? lastSendTime;
+  final DateTime? lastReceiveTime;
+  final DateTime? lastCleanupTime;
+  final DateTime? nextCleanupTime;
+  final int lastCleanupRemovedCount;
+
+  const MeshStats({
+    required this.totalMessagesSent,
+    required this.totalMessagesReceived,
+    required this.totalMessagesDeliveredToMe,
+    required this.successfulDeliveries,
+    required this.avgDeliveryMillis,
+    required this.currentConnectedDevices,
+    required this.lastSendTime,
+    required this.lastReceiveTime,
+    required this.lastCleanupTime,
+    required this.nextCleanupTime,
+    required this.lastCleanupRemovedCount,
+  });
+
+  factory MeshStats.initial() => const MeshStats(
+        totalMessagesSent: 0,
+        totalMessagesReceived: 0,
+        totalMessagesDeliveredToMe: 0,
+        successfulDeliveries: 0,
+        avgDeliveryMillis: 0,
+        currentConnectedDevices: 0,
+        lastSendTime: null,
+        lastReceiveTime: null,
+        lastCleanupTime: null,
+        nextCleanupTime: null,
+        lastCleanupRemovedCount: 0,
+      );
+
+  MeshStats copyWith({
+    int? totalMessagesSent,
+    int? totalMessagesReceived,
+    int? totalMessagesDeliveredToMe,
+    int? successfulDeliveries,
+    double? avgDeliveryMillis,
+    int? currentConnectedDevices,
+    DateTime? lastSendTime,
+    DateTime? lastReceiveTime,
+    DateTime? lastCleanupTime,
+    DateTime? nextCleanupTime,
+    int? lastCleanupRemovedCount,
+  }) {
+    return MeshStats(
+      totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
+      totalMessagesReceived: totalMessagesReceived ?? this.totalMessagesReceived,
+      totalMessagesDeliveredToMe:
+          totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
+      successfulDeliveries: successfulDeliveries ?? this.successfulDeliveries,
+      avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
+      currentConnectedDevices:
+          currentConnectedDevices ?? this.currentConnectedDevices,
+      lastSendTime: lastSendTime ?? this.lastSendTime,
+      lastReceiveTime: lastReceiveTime ?? this.lastReceiveTime,
+      lastCleanupTime: lastCleanupTime ?? this.lastCleanupTime,
+      nextCleanupTime: nextCleanupTime ?? this.nextCleanupTime,
+      lastCleanupRemovedCount:
+          lastCleanupRemovedCount ?? this.lastCleanupRemovedCount,
+    );
+  }
+}
 
 /// Simple Bluetooth mesh-style service built on top of flutter_blue_plus.
 ///
@@ -30,6 +106,11 @@ class MeshService {
   Timer? _scanTimer;
   Timer? _cleanupTimer;
   StreamSubscription<List<ScanResult>>? _scanSub;
+
+  final ValueNotifier<MeshStats> stats =
+      ValueNotifier<MeshStats>(MeshStats.initial());
+
+  final Set<String> _connectedDeviceIds = <String>{};
 
   // Cache my ID so we don't recompute for every operation.
   String? _myIdCache;
@@ -135,7 +216,11 @@ class MeshService {
 
     // Try connecting once, then immediately exchanging messages.
     try {
-      await device.connect(autoConnect: false, timeout: const Duration(seconds: 8));
+      await device.connect(
+          autoConnect: false, timeout: const Duration(seconds: 8));
+      _connectedDeviceIds.add(device.remoteId.str);
+      stats.value = stats.value
+          .copyWith(currentConnectedDevices: _connectedDeviceIds.length);
     } catch (_) {
       // Already connected or failed – best effort.
     }
@@ -169,6 +254,9 @@ class MeshService {
       } catch (_) {
         // ignore
       }
+      _connectedDeviceIds.remove(device.remoteId.str);
+      stats.value = stats.value
+          .copyWith(currentConnectedDevices: _connectedDeviceIds.length);
     }
   }
 
@@ -198,6 +286,12 @@ class MeshService {
       await characteristic.write(
         bytes,
         withoutResponse: true,
+      );
+      final now = DateTime.now();
+      final current = stats.value;
+      stats.value = current.copyWith(
+        totalMessagesSent: current.totalMessagesSent + toSend.length,
+        lastSendTime: now,
       );
       LogService.log('Mesh', 'Forwarded ${toSend.length} messages to peer');
     } catch (e) {
@@ -253,6 +347,15 @@ class MeshService {
       final sender = raw['senderUserCode'] as String?;
       final hops = (raw['hops'] as int?) ?? 0;
 
+      final now = DateTime.now();
+      final current = stats.value;
+
+      // Track receive for any valid, new message.
+      stats.value = current.copyWith(
+        totalMessagesReceived: current.totalMessagesReceived + 1,
+        lastReceiveTime: now,
+      );
+
       if (receiver == myUserCode && sender != null) {
         // Store in my chat table; decryption will be attempted when reading.
         await db.insertChatMsg(
@@ -272,6 +375,27 @@ class MeshService {
           'receiveDate': DateTime.now().toIso8601String(),
           'isReceived': 1,
         });
+
+        // Update delivery stats and moving average latency if sendDate present.
+        final sendDateStr = raw['sendDate'] as String?;
+        if (sendDateStr != null) {
+          final sendTime = DateTime.tryParse(sendDateStr);
+          if (sendTime != null) {
+            final latency = now.difference(sendTime).inMilliseconds.toDouble();
+            final prevCount = current.successfulDeliveries;
+            final newCount = prevCount + 1;
+            final newAvg = newCount == 0
+                ? latency
+                : ((current.avgDeliveryMillis * prevCount) + latency) /
+                    newCount;
+            stats.value = stats.value.copyWith(
+              totalMessagesDeliveredToMe:
+                  current.totalMessagesDeliveredToMe + 1,
+              successfulDeliveries: newCount,
+              avgDeliveryMillis: newAvg,
+            );
+          }
+        }
       } else if (hops > 0) {
         await db.insertNonUserMsg({
           ...raw,
@@ -287,6 +411,14 @@ class MeshService {
     final db = DBHelper();
     try {
       final removed = await db.removeOldNonUserMsgs(olderThanDays: 3);
+      final now = DateTime.now();
+      final next = now.add(const Duration(minutes: 10));
+      final current = stats.value;
+      stats.value = current.copyWith(
+        lastCleanupTime: now,
+        nextCleanupTime: next,
+        lastCleanupRemovedCount: removed,
+      );
       LogService.log('Mesh', 'Cleanup removed $removed old relay messages');
     } catch (e) {
       LogService.log('Mesh', 'Cleanup error: $e');
