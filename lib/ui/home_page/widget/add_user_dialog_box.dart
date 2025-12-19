@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:bluetooth_chat_app/services/uuid_service.dart';
+import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -109,7 +110,7 @@ Future<void> showAddUserDialog(BuildContext context) async {
                   backgroundColor: Colors.greenAccent,
                   foregroundColor: Colors.black,
                 ),
-                onPressed: () {
+                onPressed: () async {
                   final otherId = otherIdController.text.trim();
                   final name = nameController.text.trim();
 
@@ -120,9 +121,15 @@ Future<void> showAddUserDialog(BuildContext context) async {
                     return;
                   }
 
-                  // TODO: Save user / start Bluetooth pairing
-                  debugPrint('Added User → ID: $otherId | Name: $name');
+                  // Save user to local DB
+                  final db = DBHelper();
+                  await db.insertUser({
+                    'userCode': otherId,
+                    'name': name,
+                    'lastConnected': DateTime.now().toIso8601String(),
+                  });
 
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
                 child: const Text('Add User'),

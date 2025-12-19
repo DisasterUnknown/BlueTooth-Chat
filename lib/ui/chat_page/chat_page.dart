@@ -1,5 +1,8 @@
 import 'package:bluetooth_chat_app/data/models/message.dart';
 import 'package:bluetooth_chat_app/ui/chat_page/widget/message_bubble.dart';
+import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
+import 'package:bluetooth_chat_app/services/mesh_service.dart';
+import 'package:bluetooth_chat_app/services/uuid_service.dart';
 import 'package:flutter/material.dart';
 
 class ChatPage extends StatefulWidget {
@@ -16,16 +19,55 @@ class _ChatPageState extends State<ChatPage> {
   final List<Message> _messages = [];
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  String? _myId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    final myId = await AppIdentifier.getId();
+    final db = DBHelper();
+    final rawMsgs =
+        await db.getChatMsgs(widget.userId, myUserCode: myId);
+    final loaded = rawMsgs.map((m) {
+      final text = (m['msg'] as String?) ?? '';
+      final isMe = m['isReceived'] == 0;
+      final sendDateStr = (m['sendDate'] as String?) ??
+          DateTime.now().toIso8601String();
+      final time = DateTime.tryParse(sendDateStr) ?? DateTime.now();
+      return Message(text: text, isMe: isMe, time: time);
+    }).toList();
+
+    if (!mounted) return;
+    setState(() {
+      _myId = myId;
+      _messages.clear();
+      _messages.addAll(loaded);
+    });
+  }
 
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    if (_myId == null) return;
+
+    final msg = Message(text: text, isMe: true, time: DateTime.now());
 
     setState(() {
-      _messages.add(Message(text: text, isMe: true, time: DateTime.now()));
+      _messages.add(msg);
     });
 
     _controller.clear();
+
+    // Persist + enqueue for mesh forwarding.
+    MeshService.instance.sendNewMessage(
+      myUserCode: _myId!,
+      targetUserCode: widget.userId,
+      plainText: text,
+    );
 
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
