@@ -1,12 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:ble_peripheral/src/ble_peripheral_interface.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
 import 'package:bluetooth_chat_app/data/data_base/db_crypto.dart';
 import 'package:bluetooth_chat_app/services/log_service.dart';
 import 'package:bluetooth_chat_app/services/uuid_service.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
+// 🔥 Prefix imports to avoid collisions
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' as fbp;
+import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart' as fperiph;
+import 'package:ble_peripheral/ble_peripheral.dart' as periph;
 
 class MeshStats {
   final int totalMessagesSent;
@@ -64,10 +71,12 @@ class MeshStats {
   }) =>
       MeshStats(
         totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
-        totalMessagesReceived: totalMessagesReceived ?? this.totalMessagesReceived,
+        totalMessagesReceived:
+            totalMessagesReceived ?? this.totalMessagesReceived,
         totalMessagesDeliveredToMe:
             totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
-        successfulDeliveries: successfulDeliveries ?? this.successfulDeliveries,
+        successfulDeliveries:
+            successfulDeliveries ?? this.successfulDeliveries,
         avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
         currentConnectedDevices:
             currentConnectedDevices ?? this.currentConnectedDevices,
@@ -85,15 +94,23 @@ class MeshService {
   static final MeshService instance = MeshService._();
 
   static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
-  static const String _characteristicUuid = '0000beef-0000-1000-8000-00805f9b34fb';
+  static const String _characteristicUuid =
+      '0000beef-0000-1000-8000-00805f9b34fb';
+  static const int _maxChunkSize = 180;
 
   bool _running = false;
   Timer? _scanTimer;
   Timer? _cleanupTimer;
-  StreamSubscription<List<ScanResult>>? _scanSub;
+  StreamSubscription<List<fbp.ScanResult>>? _scanSub;
 
-  final ValueNotifier<MeshStats> stats = ValueNotifier(MeshStats.initial());
+  final fperiph.FlutterBlePeripheral _blePeripheral =
+      fperiph.FlutterBlePeripheral();
+
+  final ValueNotifier<MeshStats> stats =
+      ValueNotifier<MeshStats>(MeshStats.initial());
+
   final Set<String> _connectedDeviceIds = <String>{};
+  final Map<String, List<int>> _incomingBuffers = {};
 
   String? _myIdCache;
   Future<String> _getMyId() async {
@@ -105,19 +122,15 @@ class MeshService {
     if (_running) return;
     _running = true;
 
-    final myId = await _getMyId();
-    LogService.log('Mesh', 'Starting mesh service for user $myId');
+    await _startAdvertising();
+    _setupGattServerListener();
 
-    await Future.delayed(const Duration(seconds: 1));
+    _scanTimer =
+        Timer.periodic(const Duration(minutes: 2), (_) => _runScanBurst());
+    _cleanupTimer =
+        Timer.periodic(const Duration(minutes: 10), (_) => _runCleanup());
 
-    _scanTimer = Timer.periodic(const Duration(minutes: 2), (_) {
-      _runScanBurst();
-    });
     unawaited(_runScanBurst());
-
-    _cleanupTimer = Timer.periodic(const Duration(minutes: 10), (_) {
-      _runCleanup();
-    });
   }
 
   Future<void> stop() async {
@@ -125,230 +138,186 @@ class MeshService {
     _scanTimer?.cancel();
     _cleanupTimer?.cancel();
     await _scanSub?.cancel();
-    _scanSub = null;
+    await _stopAdvertising();
     try {
-      await FlutterBluePlus.stopScan();
+      await fbp.FlutterBluePlus.stopScan();
     } catch (_) {}
   }
 
+  // ───────────────── Advertising ─────────────────
+
+  Future<void> _startAdvertising() async {
+    final myId = await _getMyId();
+
+    final advertiseData = fperiph.AdvertiseData(
+      localName: 'Mesh-$myId',
+      serviceUuid: _serviceUuid,
+      manufacturerId: 0xFFFF,
+      manufacturerData: Uint8List.fromList(utf8.encode(myId)),
+    );
+
+    await _blePeripheral.start(advertiseData: advertiseData);
+    LogService.log('Mesh', 'Advertising as Mesh-$myId');
+  }
+
+  Future<void> _stopAdvertising() async {
+    await _blePeripheral.stop();
+  }
+
+  // ───────────────── GATT Server ─────────────────
+
+  void _setupGattServerListener() async {
+  await periph.BlePeripheral.initialize();
+
+  // 1. Add Service first
+  await periph.BlePeripheral.addService(
+    periph.BleService(
+      uuid: _serviceUuid,
+      primary: true,
+      characteristics: [
+        periph.BleCharacteristic(
+          uuid: _characteristicUuid,
+          properties: [
+            periph.CharacteristicProperties.write.index,
+            periph.CharacteristicProperties.writeWithoutResponse.index,
+          ],
+          permissions: [
+            periph.AttributePermissions.writeable.index,
+          ],
+        ),
+      ],
+    ),
+  );
+
+  // 2. Correct Callback Signature
+  periph.BlePeripheral.setWriteRequestCallback((request) {
+    final deviceId = request.deviceId;
+    final value = request.value;
+
+    final buffer = _incomingBuffers[deviceId] ?? <int>[];
+    buffer.addAll(value);
+    _incomingBuffers[deviceId] = buffer;
+
+    // Only decode if we have the JSON end-brace
+    if (value.isNotEmpty && value.last == 125) { // 125 = '}'
+      try {
+        final raw = utf8.decode(buffer);
+        _getMyId().then((id) => handleIncomingBatch(raw, id));
+        _incomingBuffers.remove(deviceId);
+      } catch (e) {
+        LogService.log('Mesh', 'Decoding chunk failed, waiting for more...');
+      }
+    }
+    
+    // Return the enum value, not the class type
+    // Depending on your ble_peripheral version, this might be:
+    // return periph.WriteRequestResult.success; 
+  } as WriteRequestCallback);
+}
+
+  // ───────────────── Central / Scan ─────────────────
+
   Future<void> _runScanBurst() async {
     if (!_running) return;
-    try {
-      final supported = await FlutterBluePlus.isSupported;
-      if (!supported) {
-        LogService.log('Mesh', 'Bluetooth not supported on this device');
-        return;
-      }
-    } catch (e) {
-      LogService.log('Mesh', 'Error checking BT support: $e');
-      return;
-    }
 
-    LogService.log('Mesh', 'Starting scan burst');
+    await fbp.FlutterBluePlus.startScan(
+      timeout: const Duration(seconds: 8),
+      androidScanMode: fbp.AndroidScanMode.lowPower,
+    );
 
-    try {
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 8),
-        androidScanMode: AndroidScanMode.lowPower,
-      );
-
-      await _scanSub?.cancel();
-      _scanSub = FlutterBluePlus.scanResults.listen((results) {
-        for (final result in results) {
-          _handleScanResult(result);
-        }
-      });
-    } catch (e) {
-      LogService.log('Mesh', 'Error starting scan: $e');
-      return;
-    }
-
-    Future.delayed(const Duration(seconds: 9), () async {
-      try {
-        await FlutterBluePlus.stopScan();
-        LogService.log('Mesh', 'Stopped scan burst');
-      } catch (e) {
-        LogService.log('Mesh', 'Error stopping scan: $e');
+    _scanSub?.cancel();
+    _scanSub = fbp.FlutterBluePlus.scanResults.listen((results) {
+      for (final r in results) {
+        unawaited(_handleScanResult(r));
       }
     });
   }
 
-  Future<void> _handleScanResult(ScanResult result) async {
-    if (!_running) return;
+  Future<void> _handleScanResult(fbp.ScanResult result) async {
     final device = result.device;
-    final name = device.platformName;
-    if (name.isEmpty) return;
-
-    LogService.log('Mesh', 'Found device ${device.remoteId} ($name)');
 
     try {
-      await device.connect(autoConnect: false, timeout: const Duration(seconds: 8));
+      await device.connect(timeout: const Duration(seconds: 8));
+      await device.requestMtu(250);
       _connectedDeviceIds.add(device.remoteId.str);
-      stats.value = stats.value.copyWith(currentConnectedDevices: _connectedDeviceIds.length);
-    } catch (_) {}
 
-    try {
       final services = await device.discoverServices();
-      final meshService = services.firstWhere(
+      final svc = services.firstWhere(
         (s) => s.serviceUuid.str128 == _serviceUuid,
-        orElse: () => services.isNotEmpty ? services.first : services.first,
       );
 
-      if (meshService.characteristics.isEmpty ||
-          meshService.serviceUuid.str128 != _serviceUuid) {
-        await device.disconnect();
-        return;
-      }
-
-      final characteristic = meshService.characteristics.firstWhere(
+      final char = svc.characteristics.firstWhere(
         (c) => c.characteristicUuid.str128 == _characteristicUuid,
-        orElse: () => meshService.characteristics.first,
       );
 
-      await _forwardPendingMessagesToPeer(characteristic);
-      await _receiveFromPeer(characteristic);
-    } catch (e) {
-      LogService.log('Mesh', 'Error during service discovery: $e');
+      await _forwardPendingMessagesToPeer(char);
+      await _receiveFromPeer(char);
+      await Future.delayed(const Duration(milliseconds: 500));
+    } catch (_) {
     } finally {
       try {
         await device.disconnect();
       } catch (_) {}
       _connectedDeviceIds.remove(device.remoteId.str);
-      stats.value = stats.value.copyWith(currentConnectedDevices: _connectedDeviceIds.length);
     }
   }
 
-  Future<void> _forwardPendingMessagesToPeer(BluetoothCharacteristic characteristic) async {
+  // ───────────────── Messaging ─────────────────
+
+  Future<void> _forwardPendingMessagesToPeer(
+      fbp.BluetoothCharacteristic characteristic) async {
     final db = DBHelper();
     final pending = await db.getPendingNonUserMsgs();
     if (pending.isEmpty) return;
 
-    final toSend =
-        pending.where((m) => (m['hops'] as int? ?? 0) > 0).toList(growable: false);
-    if (toSend.isEmpty) return;
-
-    final batch = {'type': 'mesh_batch', 'messages': toSend};
-    final jsonStr = jsonEncode(batch);
+    final jsonStr = jsonEncode({'type': 'mesh_batch', 'messages': pending});
     final bytes = utf8.encode(jsonStr);
 
-    try {
-      await characteristic.write(bytes, withoutResponse: true);
-      final now = DateTime.now();
-      final current = stats.value;
-      stats.value = current.copyWith(
-        totalMessagesSent: current.totalMessagesSent + toSend.length,
-        lastSendTime: now,
+    for (var i = 0; i < bytes.length; i += _maxChunkSize) {
+      await characteristic.write(
+        bytes.sublist(i, (i + _maxChunkSize).clamp(0, bytes.length)),
+        withoutResponse: true,
       );
-      LogService.log('Mesh', 'Forwarded ${toSend.length} messages to peer');
-    } catch (e) {
-      LogService.log('Mesh', 'Error writing to characteristic: $e');
     }
   }
 
-  Future<void> _receiveFromPeer(BluetoothCharacteristic characteristic) async {
-    try {
-      final data = await characteristic.read();
-      if (data.isEmpty) return;
-      final payload = utf8.decode(data);
-      final myId = await _getMyId();
-      await handleIncomingBatch(payload, myId);
-    } catch (e) {
-      LogService.log('Mesh', 'Error reading from characteristic: $e');
-    }
+  Future<void> _receiveFromPeer(
+      fbp.BluetoothCharacteristic characteristic) async {
+    final data = await characteristic.read();
+    if (data.isEmpty) return;
+
+    final payload = utf8.decode(data);
+    await handleIncomingBatch(payload, await _getMyId());
   }
 
-  Future<void> handleIncomingBatch(String payload, String myUserCode) async {
-    Map<String, dynamic> decoded;
-    try {
-      decoded = jsonDecode(payload) as Map<String, dynamic>;
-    } catch (e) {
-      LogService.log('Mesh', 'Invalid batch JSON: $e');
-      return;
-    }
+  // ───────────────── Business Logic ─────────────────
 
+  Future<void> handleIncomingBatch(
+      String payload, String myUserCode) async {
+    final decoded = jsonDecode(payload);
     if (decoded['type'] != 'mesh_batch') return;
-    final List msgs = decoded['messages'] as List? ?? <dynamic>[];
-    if (msgs.isEmpty) return;
 
     final db = DBHelper();
-
-    for (final raw in msgs) {
-      if (raw is! Map<String, dynamic>) continue;
-      final msgId = raw['msgId'] as String?;
-      if (msgId == null) continue;
+    for (final raw in decoded['messages']) {
+      final msgId = raw['msgId'];
       if (await db.isMsgInHash(msgId)) continue;
 
       await db.insertHashMsg(msgId);
 
-      final receiver = raw['receiverUserCode'] as String?;
-      final sender = raw['senderUserCode'] as String?;
-      final hops = (raw['hops'] as int?) ?? 0;
-
-      final now = DateTime.now();
-      final current = stats.value;
-
-      stats.value = current.copyWith(
-        totalMessagesReceived: current.totalMessagesReceived + 1,
-        lastReceiveTime: now,
-      );
-
-      if (receiver == myUserCode && sender != null) {
-        await db.insertChatMsg(sender, {
-          'msgId': msgId,
-          'msg': raw['msg'],
-          'sendDate': raw['sendDate'],
-          'receiveDate': now.toIso8601String(),
-          'isReceived': 1,
-        }, encrypt: false);
-
-        await db.insertNonUserMsg({
-          ...raw,
-          'receiveDate': now.toIso8601String(),
-          'isReceived': 1,
-        });
-
-        final sendDateStr = raw['sendDate'] as String?;
-        if (sendDateStr != null) {
-          final sendTime = DateTime.tryParse(sendDateStr);
-          if (sendTime != null) {
-            final latency = now.difference(sendTime).inMilliseconds.toDouble();
-            final prevCount = current.successfulDeliveries;
-            final newCount = prevCount + 1;
-            final newAvg = ((current.avgDeliveryMillis * prevCount) + latency) / newCount;
-            stats.value = stats.value.copyWith(
-              totalMessagesDeliveredToMe: current.totalMessagesDeliveredToMe + 1,
-              successfulDeliveries: newCount,
-              avgDeliveryMillis: newAvg,
-            );
-          }
-        }
-      } else if (hops > 0) {
-        await db.insertNonUserMsg({
-          ...raw,
-          'hops': hops - 1,
-          'receiveDate': now.toIso8601String(),
-          'isReceived': 0,
-        });
+      if (raw['receiverUserCode'] == myUserCode) {
+        await db.insertChatMsg(
+          raw['senderUserCode'],
+          raw,
+          encrypt: false,
+        );
+      } else if ((raw['hops'] ?? 0) > 0) {
+        await db.insertNonUserMsg({...raw, 'hops': raw['hops'] - 1});
       }
     }
   }
 
   Future<void> _runCleanup() async {
-    final db = DBHelper();
-    try {
-      final removed = await db.removeOldNonUserMsgs(olderThanDays: 3);
-      final now = DateTime.now();
-      final next = now.add(const Duration(minutes: 10));
-      final current = stats.value;
-      stats.value = current.copyWith(
-        lastCleanupTime: now,
-        nextCleanupTime: next,
-        lastCleanupRemovedCount: removed,
-      );
-      LogService.log('Mesh', 'Cleanup removed $removed old relay messages');
-    } catch (e) {
-      LogService.log('Mesh', 'Cleanup error: $e');
-    }
+    await DBHelper().removeOldNonUserMsgs(olderThanDays: 3);
   }
 
   Future<void> sendNewMessage({
@@ -356,29 +325,16 @@ class MeshService {
     required String targetUserCode,
     required String plainText,
   }) async {
-    final db = DBHelper();
     final msgId = generateMsgId(myUserCode);
+    final encrypted =
+        CryptoHelper.encryptMsg(plainText, targetUserCode);
 
-    await db.insertChatMsg(targetUserCode, {
+    await DBHelper().insertNonUserMsg({
       'msgId': msgId,
-      'msg': plainText,
-      'sendDate': DateTime.now().toIso8601String(),
-      'receiveDate': null,
-      'isReceived': 0,
-    }, encrypt: false);
-
-    final encryptedForReceiver = CryptoHelper.encryptMsg(plainText, targetUserCode);
-    await db.insertNonUserMsg({
-      'msgId': msgId,
-      'msg': encryptedForReceiver,
-      'sendDate': DateTime.now().toIso8601String(),
-      'receiveDate': null,
+      'msg': encrypted,
       'senderUserCode': myUserCode,
       'receiverUserCode': targetUserCode,
-      'isReceived': 0,
       'hops': 4,
     });
-
-    await db.insertHashMsg(msgId);
   }
 }

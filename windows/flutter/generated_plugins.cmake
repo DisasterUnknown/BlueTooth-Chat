@@ -3,8 +3,10 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  ble_peripheral
   emoji_picker_flutter
   file_selector_windows
+  flutter_ble_peripheral
   flutter_secure_storage_windows
   permission_handler_windows
 )

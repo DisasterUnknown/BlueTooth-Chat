@@ -25,6 +25,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.0"
+  ble_peripheral:
+    dependency: "direct main"
+    description:
+      name: ble_peripheral
+      sha256: "858d370709507155bbf69e6160e9cb81d802e664f133a649a38b9ca04439884c"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.4.0"
   boolean_selector:
     dependency: transitive
     description:
@@ -206,6 +214,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_ble_peripheral:
+    dependency: "direct main"
+    description:
+      name: flutter_ble_peripheral
+      sha256: bd38e230dcb64f2c7a128adbabe5ac23a724f2b15f02ceb1568bc2ac70763807
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.1"
   flutter_blue_plus:
     dependency: "direct main"
     description:
@@ -304,6 +320,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.2"
+  json_annotation:
+    dependency: transitive
+    description:
+      name: json_annotation
+      sha256: "1ce844379ca14835a50d2f019a3099f419082cfdd231cd86a142af94dd5c6bb1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.9.0"
   leak_tracker:
     dependency: transitive
     description:
