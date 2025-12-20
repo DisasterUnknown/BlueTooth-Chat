@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
-import 'package:ble_peripheral/src/ble_peripheral_interface.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
@@ -43,18 +41,18 @@ class MeshStats {
   });
 
   factory MeshStats.initial() => const MeshStats(
-        totalMessagesSent: 0,
-        totalMessagesReceived: 0,
-        totalMessagesDeliveredToMe: 0,
-        successfulDeliveries: 0,
-        avgDeliveryMillis: 0,
-        currentConnectedDevices: 0,
-        lastSendTime: null,
-        lastReceiveTime: null,
-        lastCleanupTime: null,
-        nextCleanupTime: null,
-        lastCleanupRemovedCount: 0,
-      );
+    totalMessagesSent: 0,
+    totalMessagesReceived: 0,
+    totalMessagesDeliveredToMe: 0,
+    successfulDeliveries: 0,
+    avgDeliveryMillis: 0,
+    currentConnectedDevices: 0,
+    lastSendTime: null,
+    lastReceiveTime: null,
+    lastCleanupTime: null,
+    nextCleanupTime: null,
+    lastCleanupRemovedCount: 0,
+  );
 
   MeshStats copyWith({
     int? totalMessagesSent,
@@ -68,25 +66,22 @@ class MeshStats {
     DateTime? lastCleanupTime,
     DateTime? nextCleanupTime,
     int? lastCleanupRemovedCount,
-  }) =>
-      MeshStats(
-        totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
-        totalMessagesReceived:
-            totalMessagesReceived ?? this.totalMessagesReceived,
-        totalMessagesDeliveredToMe:
-            totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
-        successfulDeliveries:
-            successfulDeliveries ?? this.successfulDeliveries,
-        avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
-        currentConnectedDevices:
-            currentConnectedDevices ?? this.currentConnectedDevices,
-        lastSendTime: lastSendTime ?? this.lastSendTime,
-        lastReceiveTime: lastReceiveTime ?? this.lastReceiveTime,
-        lastCleanupTime: lastCleanupTime ?? this.lastCleanupTime,
-        nextCleanupTime: nextCleanupTime ?? this.nextCleanupTime,
-        lastCleanupRemovedCount:
-            lastCleanupRemovedCount ?? this.lastCleanupRemovedCount,
-      );
+  }) => MeshStats(
+    totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
+    totalMessagesReceived: totalMessagesReceived ?? this.totalMessagesReceived,
+    totalMessagesDeliveredToMe:
+        totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
+    successfulDeliveries: successfulDeliveries ?? this.successfulDeliveries,
+    avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
+    currentConnectedDevices:
+        currentConnectedDevices ?? this.currentConnectedDevices,
+    lastSendTime: lastSendTime ?? this.lastSendTime,
+    lastReceiveTime: lastReceiveTime ?? this.lastReceiveTime,
+    lastCleanupTime: lastCleanupTime ?? this.lastCleanupTime,
+    nextCleanupTime: nextCleanupTime ?? this.nextCleanupTime,
+    lastCleanupRemovedCount:
+        lastCleanupRemovedCount ?? this.lastCleanupRemovedCount,
+  );
 }
 
 class MeshService {
@@ -106,8 +101,9 @@ class MeshService {
   final fperiph.FlutterBlePeripheral _blePeripheral =
       fperiph.FlutterBlePeripheral();
 
-  final ValueNotifier<MeshStats> stats =
-      ValueNotifier<MeshStats>(MeshStats.initial());
+  final ValueNotifier<MeshStats> stats = ValueNotifier<MeshStats>(
+    MeshStats.initial(),
+  );
 
   final Set<String> _connectedDeviceIds = <String>{};
   final Map<String, List<int>> _incomingBuffers = {};
@@ -125,10 +121,14 @@ class MeshService {
     await _startAdvertising();
     _setupGattServerListener();
 
-    _scanTimer =
-        Timer.periodic(const Duration(minutes: 2), (_) => _runScanBurst());
-    _cleanupTimer =
-        Timer.periodic(const Duration(minutes: 10), (_) => _runCleanup());
+    _scanTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => _runScanBurst(),
+    );
+    _cleanupTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => _runCleanup(),
+    );
 
     unawaited(_runScanBurst());
   }
@@ -167,53 +167,59 @@ class MeshService {
   // ───────────────── GATT Server ─────────────────
 
   void _setupGattServerListener() async {
-  await periph.BlePeripheral.initialize();
+    await periph.BlePeripheral.initialize();
 
-  // 1. Add Service first
-  await periph.BlePeripheral.addService(
-    periph.BleService(
-      uuid: _serviceUuid,
-      primary: true,
-      characteristics: [
-        periph.BleCharacteristic(
-          uuid: _characteristicUuid,
-          properties: [
-            periph.CharacteristicProperties.write.index,
-            periph.CharacteristicProperties.writeWithoutResponse.index,
-          ],
-          permissions: [
-            periph.AttributePermissions.writeable.index,
-          ],
-        ),
-      ],
-    ),
-  );
+    // 1. Add Service first
+    await periph.BlePeripheral.addService(
+      periph.BleService(
+        uuid: _serviceUuid,
+        primary: true,
+        characteristics: [
+          periph.BleCharacteristic(
+            uuid: _characteristicUuid,
+            properties: [
+              periph.CharacteristicProperties.write.index,
+              periph.CharacteristicProperties.writeWithoutResponse.index,
+            ],
+            permissions: [periph.AttributePermissions.writeable.index],
+          ),
+        ],
+      ),
+    );
 
-  // 2. Correct Callback Signature
-  periph.BlePeripheral.setWriteRequestCallback((request) {
-    final deviceId = request.deviceId;
-    final value = request.value;
-
-    final buffer = _incomingBuffers[deviceId] ?? <int>[];
-    buffer.addAll(value);
-    _incomingBuffers[deviceId] = buffer;
-
-    // Only decode if we have the JSON end-brace
-    if (value.isNotEmpty && value.last == 125) { // 125 = '}'
-      try {
-        final raw = utf8.decode(buffer);
-        _getMyId().then((id) => handleIncomingBatch(raw, id));
-        _incomingBuffers.remove(deviceId);
-      } catch (e) {
-        LogService.log('Mesh', 'Decoding chunk failed, waiting for more...');
+    // 2. Correct Callback Signature
+    periph.BlePeripheral.setWriteRequestCallback((
+      String deviceId,
+      String characteristicUuid,
+      int requestId,
+      Uint8List? value,
+    ) {
+      if (value == null || value.isEmpty) {
+        return periph.WriteRequestResult(status: 0);
       }
-    }
-    
-    // Return the enum value, not the class type
-    // Depending on your ble_peripheral version, this might be:
-    // return periph.WriteRequestResult.success; 
-  } as WriteRequestCallback);
-}
+
+      final buffer = _incomingBuffers[deviceId] ?? <int>[];
+      buffer.addAll(value);
+      _incomingBuffers[deviceId] = buffer;
+
+      // 125 = '}'
+      if (value.last == 125) {
+        try {
+          final raw = utf8.decode(buffer);
+          _incomingBuffers.remove(deviceId);
+
+          _getMyId().then((id) {
+            handleIncomingBatch(raw, id);
+          });
+        } catch (_) {
+          LogService.log('Mesh', 'Chunk decode failed');
+        }
+      }
+
+      // ✅ REQUIRED — must return enum
+      return periph.WriteRequestResult(status: 0);
+    });
+  }
 
   // ───────────────── Central / Scan ─────────────────
 
@@ -233,6 +239,12 @@ class MeshService {
     });
   }
 
+  void _updateConnectedCount() {
+    stats.value = stats.value.copyWith(
+      currentConnectedDevices: _connectedDeviceIds.length,
+    );
+  }
+
   Future<void> _handleScanResult(fbp.ScanResult result) async {
     final device = result.device;
 
@@ -240,6 +252,7 @@ class MeshService {
       await device.connect(timeout: const Duration(seconds: 8));
       await device.requestMtu(250);
       _connectedDeviceIds.add(device.remoteId.str);
+      _updateConnectedCount();
 
       final services = await device.discoverServices();
       final svc = services.firstWhere(
@@ -259,13 +272,15 @@ class MeshService {
         await device.disconnect();
       } catch (_) {}
       _connectedDeviceIds.remove(device.remoteId.str);
+      _updateConnectedCount();
     }
   }
 
   // ───────────────── Messaging ─────────────────
 
   Future<void> _forwardPendingMessagesToPeer(
-      fbp.BluetoothCharacteristic characteristic) async {
+    fbp.BluetoothCharacteristic characteristic,
+  ) async {
     final db = DBHelper();
     final pending = await db.getPendingNonUserMsgs();
     if (pending.isEmpty) return;
@@ -282,7 +297,8 @@ class MeshService {
   }
 
   Future<void> _receiveFromPeer(
-      fbp.BluetoothCharacteristic characteristic) async {
+    fbp.BluetoothCharacteristic characteristic,
+  ) async {
     final data = await characteristic.read();
     if (data.isEmpty) return;
 
@@ -292,8 +308,7 @@ class MeshService {
 
   // ───────────────── Business Logic ─────────────────
 
-  Future<void> handleIncomingBatch(
-      String payload, String myUserCode) async {
+  Future<void> handleIncomingBatch(String payload, String myUserCode) async {
     final decoded = jsonDecode(payload);
     if (decoded['type'] != 'mesh_batch') return;
 
@@ -305,11 +320,7 @@ class MeshService {
       await db.insertHashMsg(msgId);
 
       if (raw['receiverUserCode'] == myUserCode) {
-        await db.insertChatMsg(
-          raw['senderUserCode'],
-          raw,
-          encrypt: false,
-        );
+        await db.insertChatMsg(raw['senderUserCode'], raw, encrypt: false);
       } else if ((raw['hops'] ?? 0) > 0) {
         await db.insertNonUserMsg({...raw, 'hops': raw['hops'] - 1});
       }
@@ -326,8 +337,7 @@ class MeshService {
     required String plainText,
   }) async {
     final msgId = generateMsgId(myUserCode);
-    final encrypted =
-        CryptoHelper.encryptMsg(plainText, targetUserCode);
+    final encrypted = CryptoHelper.encryptMsg(plainText, targetUserCode);
 
     await DBHelper().insertNonUserMsg({
       'msgId': msgId,
