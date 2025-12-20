@@ -8,8 +8,6 @@ import 'package:bluetooth_chat_app/services/uuid_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-/// Runtime metrics for the mesh network. This is kept in-memory per session
-/// and exposed via [MeshService.stats] so the UI can show real values.
 class MeshStats {
   final int totalMessagesSent;
   final int totalMessagesReceived;
@@ -63,65 +61,46 @@ class MeshStats {
     DateTime? lastCleanupTime,
     DateTime? nextCleanupTime,
     int? lastCleanupRemovedCount,
-  }) {
-    return MeshStats(
-      totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
-      totalMessagesReceived: totalMessagesReceived ?? this.totalMessagesReceived,
-      totalMessagesDeliveredToMe:
-          totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
-      successfulDeliveries: successfulDeliveries ?? this.successfulDeliveries,
-      avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
-      currentConnectedDevices:
-          currentConnectedDevices ?? this.currentConnectedDevices,
-      lastSendTime: lastSendTime ?? this.lastSendTime,
-      lastReceiveTime: lastReceiveTime ?? this.lastReceiveTime,
-      lastCleanupTime: lastCleanupTime ?? this.lastCleanupTime,
-      nextCleanupTime: nextCleanupTime ?? this.nextCleanupTime,
-      lastCleanupRemovedCount:
-          lastCleanupRemovedCount ?? this.lastCleanupRemovedCount,
-    );
-  }
+  }) =>
+      MeshStats(
+        totalMessagesSent: totalMessagesSent ?? this.totalMessagesSent,
+        totalMessagesReceived: totalMessagesReceived ?? this.totalMessagesReceived,
+        totalMessagesDeliveredToMe:
+            totalMessagesDeliveredToMe ?? this.totalMessagesDeliveredToMe,
+        successfulDeliveries: successfulDeliveries ?? this.successfulDeliveries,
+        avgDeliveryMillis: avgDeliveryMillis ?? this.avgDeliveryMillis,
+        currentConnectedDevices:
+            currentConnectedDevices ?? this.currentConnectedDevices,
+        lastSendTime: lastSendTime ?? this.lastSendTime,
+        lastReceiveTime: lastReceiveTime ?? this.lastReceiveTime,
+        lastCleanupTime: lastCleanupTime ?? this.lastCleanupTime,
+        nextCleanupTime: nextCleanupTime ?? this.nextCleanupTime,
+        lastCleanupRemovedCount:
+            lastCleanupRemovedCount ?? this.lastCleanupRemovedCount,
+      );
 }
 
-/// Simple Bluetooth mesh-style service built on top of flutter_blue_plus.
-///
-/// Goals:
-/// - Work completely offline (no internet required).
-/// - Use scan bursts instead of constant scanning to save battery.
-/// - Forward only pending, non-duplicate messages with limited hops.
-///
-/// NOTE:
-/// This uses a custom service/characteristic UUID. All devices running this
-/// app will expose the same service and characteristic, so they can discover
-/// and exchange batched messages with each other.
 class MeshService {
   MeshService._();
   static final MeshService instance = MeshService._();
 
-  static const String _serviceUuid =
-      '0000feed-0000-1000-8000-00805f9b34fb'; // arbitrary but fixed
-  static const String _characteristicUuid =
-      '0000beef-0000-1000-8000-00805f9b34fb';
+  static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
+  static const String _characteristicUuid = '0000beef-0000-1000-8000-00805f9b34fb';
 
   bool _running = false;
   Timer? _scanTimer;
   Timer? _cleanupTimer;
   StreamSubscription<List<ScanResult>>? _scanSub;
 
-  final ValueNotifier<MeshStats> stats =
-      ValueNotifier<MeshStats>(MeshStats.initial());
-
+  final ValueNotifier<MeshStats> stats = ValueNotifier(MeshStats.initial());
   final Set<String> _connectedDeviceIds = <String>{};
 
-  // Cache my ID so we don't recompute for every operation.
   String? _myIdCache;
-
   Future<String> _getMyId() async {
     _myIdCache ??= await AppIdentifier.getId();
     return _myIdCache!;
   }
 
-  /// Start periodic scan bursts and cleanup.
   Future<void> start() async {
     if (_running) return;
     _running = true;
@@ -129,17 +108,13 @@ class MeshService {
     final myId = await _getMyId();
     LogService.log('Mesh', 'Starting mesh service for user $myId');
 
-    // Short delay so that Bluetooth + permissions are definitely settled.
     await Future.delayed(const Duration(seconds: 1));
 
-    // Scan every 2 minutes in ~8-second bursts.
     _scanTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       _runScanBurst();
     });
-    // Also do an initial burst immediately.
     unawaited(_runScanBurst());
 
-    // Lightweight cleanup every 10 minutes.
     _cleanupTimer = Timer.periodic(const Duration(minutes: 10), (_) {
       _runCleanup();
     });
@@ -151,18 +126,13 @@ class MeshService {
     _cleanupTimer?.cancel();
     await _scanSub?.cancel();
     _scanSub = null;
-
     try {
       await FlutterBluePlus.stopScan();
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
   }
 
-  /// One scan burst: low-power scan for nearby peers exposing our service.
   Future<void> _runScanBurst() async {
     if (!_running) return;
-
     try {
       final supported = await FlutterBluePlus.isSupported;
       if (!supported) {
@@ -193,7 +163,6 @@ class MeshService {
       return;
     }
 
-    // Stop after the window.
     Future.delayed(const Duration(seconds: 9), () async {
       try {
         await FlutterBluePlus.stopScan();
@@ -206,25 +175,17 @@ class MeshService {
 
   Future<void> _handleScanResult(ScanResult result) async {
     if (!_running) return;
-
     final device = result.device;
     final name = device.platformName;
-
-    // Optional filter: skip devices that clearly are not ours.
     if (name.isEmpty) return;
 
     LogService.log('Mesh', 'Found device ${device.remoteId} ($name)');
 
-    // Try connecting once, then immediately exchanging messages.
     try {
-      await device.connect(
-          autoConnect: false, timeout: const Duration(seconds: 8));
+      await device.connect(autoConnect: false, timeout: const Duration(seconds: 8));
       _connectedDeviceIds.add(device.remoteId.str);
-      stats.value = stats.value
-          .copyWith(currentConnectedDevices: _connectedDeviceIds.length);
-    } catch (_) {
-      // Already connected or failed – best effort.
-    }
+      stats.value = stats.value.copyWith(currentConnectedDevices: _connectedDeviceIds.length);
+    } catch (_) {}
 
     try {
       final services = await device.discoverServices();
@@ -235,7 +196,6 @@ class MeshService {
 
       if (meshService.characteristics.isEmpty ||
           meshService.serviceUuid.str128 != _serviceUuid) {
-        // Peer is not running this app / protocol.
         await device.disconnect();
         return;
       }
@@ -252,42 +212,27 @@ class MeshService {
     } finally {
       try {
         await device.disconnect();
-      } catch (_) {
-        // ignore
-      }
+      } catch (_) {}
       _connectedDeviceIds.remove(device.remoteId.str);
-      stats.value = stats.value
-          .copyWith(currentConnectedDevices: _connectedDeviceIds.length);
+      stats.value = stats.value.copyWith(currentConnectedDevices: _connectedDeviceIds.length);
     }
   }
 
-  /// Serialize and send all pending messages to a connected peer.
-  Future<void> _forwardPendingMessagesToPeer(
-    BluetoothCharacteristic characteristic,
-  ) async {
+  Future<void> _forwardPendingMessagesToPeer(BluetoothCharacteristic characteristic) async {
     final db = DBHelper();
     final pending = await db.getPendingNonUserMsgs();
-
     if (pending.isEmpty) return;
 
     final toSend =
         pending.where((m) => (m['hops'] as int? ?? 0) > 0).toList(growable: false);
     if (toSend.isEmpty) return;
 
-    final batch = {
-      'type': 'mesh_batch',
-      'messages': toSend,
-    };
+    final batch = {'type': 'mesh_batch', 'messages': toSend};
     final jsonStr = jsonEncode(batch);
     final bytes = utf8.encode(jsonStr);
 
-    // BLE packets are limited; for simplicity, send as a single write and let
-    // plugin fragment if needed. For large loads, you could chunk here.
     try {
-      await characteristic.write(
-        bytes,
-        withoutResponse: true,
-      );
+      await characteristic.write(bytes, withoutResponse: true);
       final now = DateTime.now();
       final current = stats.value;
       stats.value = current.copyWith(
@@ -300,14 +245,10 @@ class MeshService {
     }
   }
 
-  /// Read messages from the peer (single read best-effort).
-  Future<void> _receiveFromPeer(
-    BluetoothCharacteristic characteristic,
-  ) async {
+  Future<void> _receiveFromPeer(BluetoothCharacteristic characteristic) async {
     try {
       final data = await characteristic.read();
       if (data.isEmpty) return;
-
       final payload = utf8.decode(data);
       final myId = await _getMyId();
       await handleIncomingBatch(payload, myId);
@@ -316,7 +257,6 @@ class MeshService {
     }
   }
 
-  /// Process a batch payload received from a peer.
   Future<void> handleIncomingBatch(String payload, String myUserCode) async {
     Map<String, dynamic> decoded;
     try {
@@ -327,7 +267,6 @@ class MeshService {
     }
 
     if (decoded['type'] != 'mesh_batch') return;
-
     final List msgs = decoded['messages'] as List? ?? <dynamic>[];
     if (msgs.isEmpty) return;
 
@@ -337,10 +276,7 @@ class MeshService {
       if (raw is! Map<String, dynamic>) continue;
       final msgId = raw['msgId'] as String?;
       if (msgId == null) continue;
-
-      if (await db.isMsgInHash(msgId)) {
-        continue;
-      }
+      if (await db.isMsgInHash(msgId)) continue;
 
       await db.insertHashMsg(msgId);
 
@@ -351,33 +287,26 @@ class MeshService {
       final now = DateTime.now();
       final current = stats.value;
 
-      // Track receive for any valid, new message.
       stats.value = current.copyWith(
         totalMessagesReceived: current.totalMessagesReceived + 1,
         lastReceiveTime: now,
       );
 
       if (receiver == myUserCode && sender != null) {
-        // Store in my chat table; decryption will be attempted when reading.
-        await db.insertChatMsg(
-          sender,
-          {
-            'msgId': msgId,
-            'msg': raw['msg'],
-            'sendDate': raw['sendDate'],
-            'receiveDate': DateTime.now().toIso8601String(),
-            'isReceived': 1,
-          },
-          encrypt: false,
-        );
+        await db.insertChatMsg(sender, {
+          'msgId': msgId,
+          'msg': raw['msg'],
+          'sendDate': raw['sendDate'],
+          'receiveDate': now.toIso8601String(),
+          'isReceived': 1,
+        }, encrypt: false);
 
         await db.insertNonUserMsg({
           ...raw,
-          'receiveDate': DateTime.now().toIso8601String(),
+          'receiveDate': now.toIso8601String(),
           'isReceived': 1,
         });
 
-        // Update delivery stats and moving average latency if sendDate present.
         final sendDateStr = raw['sendDate'] as String?;
         if (sendDateStr != null) {
           final sendTime = DateTime.tryParse(sendDateStr);
@@ -385,13 +314,9 @@ class MeshService {
             final latency = now.difference(sendTime).inMilliseconds.toDouble();
             final prevCount = current.successfulDeliveries;
             final newCount = prevCount + 1;
-            final newAvg = newCount == 0
-                ? latency
-                : ((current.avgDeliveryMillis * prevCount) + latency) /
-                    newCount;
+            final newAvg = ((current.avgDeliveryMillis * prevCount) + latency) / newCount;
             stats.value = stats.value.copyWith(
-              totalMessagesDeliveredToMe:
-                  current.totalMessagesDeliveredToMe + 1,
+              totalMessagesDeliveredToMe: current.totalMessagesDeliveredToMe + 1,
               successfulDeliveries: newCount,
               avgDeliveryMillis: newAvg,
             );
@@ -401,7 +326,7 @@ class MeshService {
         await db.insertNonUserMsg({
           ...raw,
           'hops': hops - 1,
-          'receiveDate': DateTime.now().toIso8601String(),
+          'receiveDate': now.toIso8601String(),
           'isReceived': 0,
         });
       }
@@ -426,7 +351,6 @@ class MeshService {
     }
   }
 
-  /// High-level API used by the chat screen when the local user sends a message.
   Future<void> sendNewMessage({
     required String myUserCode,
     required String targetUserCode,
@@ -435,26 +359,15 @@ class MeshService {
     final db = DBHelper();
     final msgId = generateMsgId(myUserCode);
 
-    // 1) Store a human-readable copy in the chat table for MY view.
-    //    We keep this UNENCRYPTED so I can always read my own sent messages.
-    await db.insertChatMsg(
-      targetUserCode,
-      {
-        'msgId': msgId,
-        'msg': plainText,
-        'sendDate': DateTime.now().toIso8601String(),
-        'receiveDate': null,
-        'isReceived': 0,
-      },
-      encrypt: false,
-    );
+    await db.insertChatMsg(targetUserCode, {
+      'msgId': msgId,
+      'msg': plainText,
+      'sendDate': DateTime.now().toIso8601String(),
+      'receiveDate': null,
+      'isReceived': 0,
+    }, encrypt: false);
 
-    // 2) Create a RELAY record for the mesh.
-    //    This is what hops across devices. It SHOULD be encrypted for the
-    //    receiver, because any intermediate device is just a router.
-    final encryptedForReceiver =
-        CryptoHelper.encryptMsg(plainText, targetUserCode);
-
+    final encryptedForReceiver = CryptoHelper.encryptMsg(plainText, targetUserCode);
     await db.insertNonUserMsg({
       'msgId': msgId,
       'msg': encryptedForReceiver,
@@ -469,5 +382,3 @@ class MeshService {
     await db.insertHashMsg(msgId);
   }
 }
-
-

@@ -65,7 +65,7 @@ class _ChatPageState extends State<ChatPage> {
           ? '${_replyTo!.text.substring(0, 40)}…'
           : _replyTo!.text;
       replyPreview = snippet;
-      finalText = '$text';
+      finalText = text;
     }
 
     final localId = DateTime.now().millisecondsSinceEpoch.toString();
