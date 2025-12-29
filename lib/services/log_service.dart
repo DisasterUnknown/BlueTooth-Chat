@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:bluetooth_chat_app/core/enums/logs_enums.dart';
+import 'package:bluetooth_chat_app/ui/log_page/model/log_entry.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -7,6 +9,11 @@ import 'package:path_provider/path_provider.dart';
 class LogService {
   static const int maxFileSizeBytes = 50 * 1024 * 1024; // 50MB
   static File? _logFile;
+  static final StreamController<LogEntry> _logStreamController = 
+      StreamController<LogEntry>.broadcast();
+  
+  /// Stream of log entries for live UI updates
+  static Stream<LogEntry> get logStream => _logStreamController.stream;
 
   /// Initialize log file (call in main)
   static Future<void> init() async {
@@ -26,6 +33,19 @@ class LogService {
       final logLine = "[$timestamp] [${tag.displayName}]: $message\n\n";
       _logFile!.writeAsStringSync(logLine, mode: FileMode.append, flush: true);
       _trimFileIfNeeded();
+      
+      // Emit to stream for live UI updates
+      try {
+        final logEntry = LogEntry(
+          timestamp: timestamp,
+          type: tag,
+          message: message,
+        );
+        _logStreamController.add(logEntry);
+      } catch (e) {
+        // Ignore stream errors, don't break logging
+      }
+      
       // Only print to console in debug mode
       if (kDebugMode) {
         debugPrint(logLine.trim());
@@ -88,6 +108,17 @@ class LogService {
     if (_logFile == null || !_logFile!.existsSync()) return;
     try {
       await _logFile!.writeAsString('', flush: true);
+      // Emit a special "clear" log entry to notify UI
+      try {
+        final clearEntry = LogEntry(
+          timestamp: DateTime.now().toIso8601String(),
+          type: LogTypes.success,
+          message: "Log file cleared.",
+        );
+        _logStreamController.add(clearEntry);
+      } catch (e) {
+        // Ignore stream errors
+      }
       LogService.log(LogTypes.success, "Log file cleared.");
     } catch (e) {
       LogService.log(LogTypes.error, 'Error clearing log file: $e');
@@ -95,4 +126,9 @@ class LogService {
   }
 
   static String? get logFilePath => _logFile?.path;
+  
+  /// Dispose the log stream controller (call on app shutdown)
+  static void dispose() {
+    _logStreamController.close();
+  }
 }

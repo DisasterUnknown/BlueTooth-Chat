@@ -82,7 +82,7 @@ class InfoPage extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
                   backgroundColor: connectedCount > 0 
-                      ? Colors.greenAccent.withOpacity(0.3)
+                      ? Colors.greenAccent.withValues(alpha: 0.3)
                       : const Color(0xFF2A2A2A),
                   child: Icon(
                     Icons.devices,

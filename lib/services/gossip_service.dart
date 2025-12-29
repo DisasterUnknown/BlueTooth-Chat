@@ -27,6 +27,7 @@ class GossipService {
     await storage.initialize();
 
     // Initialize transport manager (handles Bluetooth mesh)
+    // TransportManager will automatically handle Bluetooth reconnection
     transportManager = TransportManager();
     await transportManager.initialize();
 

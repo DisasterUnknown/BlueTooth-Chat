@@ -3,6 +3,10 @@ import 'gossip_transport.dart';
 import 'nearby_transport.dart';
 import '../gossip/gossip_message.dart';
 import '../gossip/peer.dart';
+import '../../../services/bluetooth_turn_on_service.dart';
+import '../../../core/enums/logs_enums.dart';
+import '../../../services/log_service.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class TransportManager {
   static final TransportManager _instance = TransportManager._internal();
@@ -10,6 +14,7 @@ class TransportManager {
 
   late final NearbyTransport _transport;
   bool _isInitialized = false;
+  StreamSubscription<BluetoothAdapterState>? _bluetoothStateSubscription;
 
   final _messageController = StreamController<ReceivedMessage>.broadcast();
   final _peerController = StreamController<Peer>.broadcast();
@@ -42,6 +47,41 @@ class TransportManager {
 
     _emitPeerSnapshot();
     _isInitialized = true;
+
+    // Monitor Bluetooth state and auto-reconnect
+    _setupBluetoothReconnection();
+  }
+
+  /// Monitor Bluetooth state and automatically restart when Bluetooth is turned back on
+  void _setupBluetoothReconnection() {
+    _bluetoothStateSubscription = BluetoothController.stateStream.listen((state) async {
+      if (!_isInitialized) return;
+      
+      if (state == BluetoothAdapterState.on) {
+        LogService.log(
+          LogTypes.nearbyTransport,
+          'Bluetooth turned on - Restarting NearbyTransport to reconnect to mesh network',
+        );
+        try {
+          // Restart the transport
+          await _transport.restart();
+          LogService.log(
+            LogTypes.nearbyTransport,
+            'NearbyTransport restarted successfully - Device is back online in mesh network',
+          );
+        } catch (e, stack) {
+          LogService.log(
+            LogTypes.nearbyTransport,
+            'Failed to restart NearbyTransport after Bluetooth turned on: $e, $stack',
+          );
+        }
+      } else if (state == BluetoothAdapterState.off) {
+        LogService.log(
+          LogTypes.nearbyTransport,
+          'Bluetooth turned off - Mesh network disconnected, will reconnect automatically when Bluetooth is enabled',
+        );
+      }
+    });
   }
 
   void _emitPeerSnapshot() {
@@ -61,6 +101,7 @@ class TransportManager {
 
   Future<void> disconnect() async {
     if (!_isInitialized) return;
+    _bluetoothStateSubscription?.cancel();
     await _transport.disconnect();
     _activePeers.clear();
     _emitPeerSnapshot();

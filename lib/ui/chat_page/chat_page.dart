@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:bluetooth_chat_app/data/models/message.dart';
 import 'package:bluetooth_chat_app/ui/chat_page/widget/message_bubble.dart';
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
@@ -22,11 +23,64 @@ class _ChatPageState extends State<ChatPage> {
   final ScrollController _scrollController = ScrollController();
   String? _myId;
   Message? _replyTo;
+  Timer? _messageRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadInitialData();
+    // Set up periodic refresh to check for new messages
+    _messageRefreshTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _refreshMessages(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _messageRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Refresh messages from database to show new incoming messages
+  Future<void> _refreshMessages() async {
+    if (_myId == null) return;
+    
+    final db = DBHelper();
+    final rawMsgs = await db.getChatMsgs(widget.userId, myUserCode: _myId);
+    final loaded = rawMsgs.map((m) {
+      final text = (m['msg'] as String?) ?? '';
+      final isMe = m['isReceived'] == 0;
+      final id = (m['msgId'] as String?) ?? '';
+      final sendDateStr = (m['sendDate'] as String?) ??
+          DateTime.now().toIso8601String();
+      final time = DateTime.tryParse(sendDateStr) ?? DateTime.now();
+      return Message(id: id, text: text, isMe: isMe, time: time);
+    }).toList();
+
+    if (!mounted) return;
+    
+    // Only update if messages changed
+    if (loaded.length != _messages.length ||
+        loaded.any((newMsg) => !_messages.any((oldMsg) => oldMsg.id == newMsg.id))) {
+      setState(() {
+        _messages.clear();
+        _messages.addAll(loaded);
+      });
+      
+      // Auto-scroll to bottom if new message received
+      if (loaded.isNotEmpty && loaded.last.isMe == false) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    }
   }
 
   Future<void> _loadInitialData() async {
