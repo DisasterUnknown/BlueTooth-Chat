@@ -29,11 +29,18 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _loadInitialData();
+    // Mark all messages as read when opening chat
+    _markMessagesAsRead();
     // Set up periodic refresh to check for new messages
     _messageRefreshTimer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => _refreshMessages(),
     );
+  }
+
+  Future<void> _markMessagesAsRead() async {
+    final db = DBHelper();
+    await db.markMessagesAsRead(widget.userId);
   }
 
   @override
@@ -67,6 +74,9 @@ class _ChatPageState extends State<ChatPage> {
         _messages.clear();
         _messages.addAll(loaded);
       });
+      
+      // Mark new messages as read
+      await _markMessagesAsRead();
       
       // Auto-scroll to bottom if new message received
       if (loaded.isNotEmpty && loaded.last.isMe == false) {

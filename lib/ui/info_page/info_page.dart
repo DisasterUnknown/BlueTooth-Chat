@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:bluetooth_chat_app/services/bluetooth_turn_on_service.dart';
 import 'package:bluetooth_chat_app/services/mesh_service.dart';
 import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
@@ -8,8 +9,30 @@ import 'package:bluetooth_chat_app/core/connection-logic/gossip/peer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
-class InfoPage extends StatelessWidget {
+class InfoPage extends StatefulWidget {
   const InfoPage({super.key});
+
+  @override
+  State<InfoPage> createState() => _InfoPageState();
+}
+
+class _InfoPageState extends State<InfoPage> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh DB stats every 2 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +241,11 @@ class InfoPage extends StatelessWidget {
               final relayTotal = data['relayTotal'] as int? ?? 0;
               final relayPending = data['relayPending'] as int? ?? 0;
               final hashes = data['hashes'] as int? ?? 0;
+              
+              // Force rebuild every 2 seconds by checking timer
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
               return Column(
                 children: [

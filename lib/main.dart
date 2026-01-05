@@ -23,6 +23,15 @@ class MyApp extends StatelessWidget {
 
     return SafeArea(
       child: MaterialApp(
+        builder: (context, child) {
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        textScaler: const TextScaler.linear(1.0), // 🔒 lock text scale
+      ),
+      child: child!,
+    );
+  },
+  
         title: 'Blue Chat',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),

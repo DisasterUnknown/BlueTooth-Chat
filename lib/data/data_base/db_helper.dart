@@ -23,7 +23,7 @@ class DBHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'bluetooth_chat.db');
 
-    return await openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    return await openDatabase(path, version: 3, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   Future _onCreate(Database db, int version) async {
@@ -146,6 +146,11 @@ class DBHelper {
       await db.execute('CREATE INDEX IF NOT EXISTS idx_incoming_remoteId ON incident_reports_incoming(remoteId)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_outgoing_localId ON incident_reports_outgoing(localId)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_incoming_received ON incident_reports_incoming(isReceived)');
+    }
+    if (oldVersion < 3) {
+      // Add isRead column to all existing chat tables
+      // We'll add it dynamically when accessing each chat table
+      // This migration will be handled in createChatTable
     }
   }
 
@@ -369,9 +374,17 @@ class DBHelper {
         msg TEXT,
         sendDate DATETIME,
         receiveDate DATETIME,
-        isReceived INTEGER
+        isReceived INTEGER,
+        isRead INTEGER DEFAULT 0
       )
     ''');
+    
+    // Add isRead column if it doesn't exist (for existing tables)
+    try {
+      await database.execute('ALTER TABLE chat_$userCode ADD COLUMN isRead INTEGER DEFAULT 0');
+    } catch (e) {
+      // Column already exists, ignore
+    }
   }
 
   Future<int> insertChatMsg(
@@ -392,6 +405,12 @@ class DBHelper {
         msg['msg'],
         receiverUserCode,
       );
+    }
+
+    // Set isRead default: 1 for sent messages (isReceived=0), 0 for received messages (isReceived=1)
+    if (!msgToInsert.containsKey('isRead')) {
+      final isReceived = msgToInsert['isReceived'] as int? ?? 0;
+      msgToInsert['isRead'] = isReceived == 0 ? 1 : 0; // Sent messages are "read", received are unread
     }
 
     return await database.insert(
@@ -434,6 +453,37 @@ class DBHelper {
     }
 
     return rawMsgs;
+  }
+
+  Future<int> getUnreadCount(String userCode) async {
+    final database = await db;
+    await createChatTable(userCode);
+    final result = await database.rawQuery(
+      'SELECT COUNT(*) as c FROM chat_$userCode WHERE isReceived = 1 AND isRead = 0',
+    );
+    return result.first['c'] as int? ?? 0;
+  }
+
+  Future<Map<String, dynamic>?> getLatestMessage(String userCode) async {
+    final database = await db;
+    await createChatTable(userCode);
+    final result = await database.query(
+      'chat_$userCode',
+      orderBy: 'sendDate DESC',
+      limit: 1,
+    );
+    if (result.isEmpty) return null;
+    return result.first;
+  }
+
+  Future<void> markMessagesAsRead(String userCode) async {
+    final database = await db;
+    await createChatTable(userCode);
+    await database.update(
+      'chat_$userCode',
+      {'isRead': 1},
+      where: 'isReceived = 1 AND isRead = 0',
+    );
   }
 
   Future<int> removeChatMsg(String userCode, String msgId) async {
