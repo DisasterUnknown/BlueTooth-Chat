@@ -1,3 +1,4 @@
+import 'package:bluetooth_chat_app/data/data_base/db_helper.dart';
 import 'package:bluetooth_chat_app/services/routing_service.dart';
 import 'package:bluetooth_chat_app/ui/home_page/widget/add_user_dialog_box.dart';
 import 'package:bluetooth_chat_app/ui/home_page/widget/app_search_delegate.dart';
@@ -14,8 +15,21 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  // 🔹 Sample searchable data (replace with real data later)
-  final List<String> searchData = ['User 0', 'User 1', 'User 2'];
+  late List<Map<String, dynamic>> users;
+
+  @override
+  void initState() {
+    super.initState();
+    getUsers();
+  }
+
+  void getUsers() async {
+    final db = DBHelper();
+    users = await db.getAllUsers();
+    setState(() {
+      users = users;
+    });
+  }
 
   void _openInfoPage() {
     RoutingService().navigateWithSlide(InfoPage());
@@ -60,7 +74,7 @@ class _HomePageState extends State<HomePage> {
             onPressed: () {
               showSearch(
                 context: context,
-                delegate: AppSearchDelegate(searchData),
+                delegate: AppSearchDelegate(users),
               );
             },
           ),

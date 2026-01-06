@@ -85,6 +85,7 @@ Future<bool?> showAddUserDialog(BuildContext context) async {
                     controller: otherIdController,
                     label: 'Other Person ID',
                     hint: 'Enter 10-character ID',
+                    maxLength: 10,
                   ),
 
                   const SizedBox(height: 12),
@@ -143,31 +144,38 @@ Future<bool?> showAddUserDialog(BuildContext context) async {
   );
 }
 
-
 Widget _darkTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.grey)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: TextStyle(color: Colors.grey.shade500),
-            filled: true,
-            fillColor: const Color(0xFF2A2A2A),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide.none,
-            ),
+  required TextEditingController controller,
+  required String label,
+  required String hint,
+  int? maxLength,
+  String? errorText,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(color: Colors.grey)),
+      const SizedBox(height: 6),
+      TextField(
+        controller: controller,
+        maxLength: maxLength,
+        inputFormatters: maxLength != null
+            ? [LengthLimitingTextInputFormatter(maxLength)]
+            : null,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: Colors.grey.shade500),
+          filled: true,
+          fillColor: const Color(0xFF2A2A2A),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide.none,
           ),
+          counterText: '',
+          errorText: errorText,
         ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}

@@ -1,7 +1,9 @@
+import 'package:bluetooth_chat_app/services/routing_service.dart';
+import 'package:bluetooth_chat_app/ui/chat_page/chat_page.dart';
 import 'package:flutter/material.dart';
 
 class AppSearchDelegate extends SearchDelegate<String> {
-  final List<String> data;
+  final List<Map<String, dynamic>> data;
 
   AppSearchDelegate(this.data);
 
@@ -64,7 +66,10 @@ class AppSearchDelegate extends SearchDelegate<String> {
   // 🔹 Shared UI for results & suggestions
   Widget _buildContent() {
     final filtered = data
-        .where((e) => e.toLowerCase().contains(query.toLowerCase()))
+        .where(
+          (e) =>
+              (e['name'] as String).toLowerCase().contains(query.toLowerCase()),
+        )
         .toList();
 
     if (query.isEmpty) {
@@ -75,10 +80,7 @@ class AppSearchDelegate extends SearchDelegate<String> {
     }
 
     if (filtered.isEmpty) {
-      return _emptyState(
-        icon: Icons.search_off,
-        text: 'No matching results',
-      );
+      return _emptyState(icon: Icons.search_off, text: 'No matching results');
     }
 
     return ListView.separated(
@@ -88,47 +90,54 @@ class AppSearchDelegate extends SearchDelegate<String> {
       itemBuilder: (context, index) {
         final item = filtered[index];
 
-        return Material(
-          color: _cardColor,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () => close(context, item),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: _accent,
-                    child: Text(
-                      item[0].toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
+        return GestureDetector(
+          onTap: () {
+            RoutingService().navigateWithSlide(
+              begin: Offset(0.0, 1.0),
+              ChatPage(userName: item['name'], userId: item['userCode']),
+            );
+          },
+          child: Material(
+            color: _cardColor,
+            borderRadius: BorderRadius.circular(7),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(7),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: _accent,
+                      child: Text(
+                        item['name'][0].toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        item['name'],
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 14,
-                    color: Colors.grey,
-                  ),
-                ],
+                    const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -145,10 +154,7 @@ class AppSearchDelegate extends SearchDelegate<String> {
         children: [
           Icon(icon, color: Colors.grey, size: 64),
           const SizedBox(height: 12),
-          Text(
-            text,
-            style: const TextStyle(color: Colors.grey, fontSize: 16),
-          ),
+          Text(text, style: const TextStyle(color: Colors.grey, fontSize: 16)),
         ],
       ),
     );

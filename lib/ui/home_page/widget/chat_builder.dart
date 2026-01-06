@@ -44,7 +44,7 @@ Widget buildChatList({VoidCallback? onContactsChanged}) {
                   latestMsgText = 'Encrypted message';
                 }
               } else {
-                latestMsgText = latestMsg['msg'] as String? ?? '';
+                latestMsgText = CryptoHelper.decryptMsg(latestMsg['msg'], userCode);
               }
               final sendDateStr = latestMsg['sendDate'] as String?;
               if (sendDateStr != null) {
@@ -182,7 +182,7 @@ Widget buildChatList({VoidCallback? onContactsChanged}) {
                   children: [
                     if (latestMsg != null)
                       Text(
-                        latestMsg.length > 50 ? '${latestMsg.substring(0, 50)}...' : latestMsg,
+                        latestMsg.length > 40 ? '${latestMsg.substring(0, 40)}...' : latestMsg,
                         style: TextStyle(
                           color: hasUnread ? Colors.greenAccent.shade200 : Colors.grey.shade400,
                           fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
