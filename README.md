@@ -142,27 +142,27 @@ fvm flutter build appbundle --release
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        UI Layer                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │ HomePage │  │ ChatPage │  │ InfoPage │  │ LogsPage │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
+│                        UI Layer                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
+│  │ HomePage │  │ ChatPage │  │ InfoPage │  │ LogsPage │     │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘     │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     Service Layer                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │GossipService │  │MeshIncident  │  │  MeshService │     │
-│  │              │  │SyncService   │  │              │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │LogService    │  │RoutingService│  │UUIDService   │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
+│                     Service Layer                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │GossipService │  │MeshIncident  │  │  MeshService │       │
+│  │              │  │SyncService   │  │              │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │LogService    │  │RoutingService│  │UUIDService   │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Connection Logic Layer                          │
+│              Connection Logic Layer                         │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │              Gossip Protocol                         │   │
 │  │  • Message propagation                               │   │
@@ -190,19 +190,19 @@ fvm flutter build appbundle --release
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Data Layer                                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │  DBHelper    │  │  Models     │  │  Crypto      │     │
-│  │  (SQLite)     │  │              │  │  (Encryption)│     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
+│                    Data Layer                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │  DBHelper    │  │  Models      │  │  Crypto      │       │
+│  │  (SQLite)    │  │              │  │  (Encryption)│       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Platform Layer (Android)                        │
-│  • Nearby Connections API                                    │
-│  • Bluetooth Low Energy                                      │
-│  • Permission Handler                                        │
+│              Platform Layer (Android)                       │
+│  • Nearby Connections API                                   │
+│  • Bluetooth Low Energy                                     │
+│  • Permission Handler                                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -530,7 +530,7 @@ The application uses a comprehensive logging system with different log types for
 | Log Type | Display Name | Description | When It's Used |
 |----------|--------------|-------------|----------------|
 | `info` | Info | General informational messages | General app events, initialization |
-| `success` | Warning | Success messages (note: display name is "Warning" but used for success) | Successful operations, confirmations |
+| `success` | Success | Success messages | Successful operations, confirmations |
 | `error` | Error | Error messages | Exceptions, failures, critical issues |
 | `conflict` | Conflict | Conflict resolution messages | Data conflicts, merge operations |
 | `syncManager` | SyncManager | Synchronization manager events | Sync operations, conflict resolution |
@@ -625,14 +625,4 @@ The application uses a comprehensive logging system with different log types for
 
 ---
 
-## License
-
-[Add your license information here]
-
-## Contributors
-
-[Add contributor information here]
-
----
-
-**Last Updated**: [Current Date]
+**Last Updated**: 19/Jan/2026
